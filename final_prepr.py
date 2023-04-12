@@ -60,10 +60,10 @@ for class_ in classes:
     test_points = len(classes[class_]) - train_points
 
     for i in range(train_points):
-        train_data.append(normalized_data[i])
+        train_data.append(classes[class_][i])
 
     for i in range(test_points):
-        test_data.append(normalized_data[train_points + i])
+        test_data.append(classes[class_][train_points + i])
 
 with open("dataset-train.csv", "w") as train_csvf, open("dataset-test.csv", "w") as test_csvf:
     train_writer = csv.writer(train_csvf, delimiter=";")
