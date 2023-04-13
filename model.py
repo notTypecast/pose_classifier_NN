@@ -9,6 +9,7 @@ from keras.callbacks import EarlyStopping
 from keras.regularizers import l1, l2
 from keras.utils import to_categorical
 from matplotlib import pyplot as plt
+from random import randint
 
 def get_avg_history(histories, metric):
     """
@@ -35,18 +36,21 @@ def get_avg_history(histories, metric):
     return avg_history
 
 # determine how many neurons to use in hidden layer
-HL = {"I": 5, "IO2": int((5 + 18) / 2), "IO": 5 + 18}
-hidden_neurons = "IO"
+HL = {"O": 5, "IO2": int((5 + 18) / 2), "IO": 5 + 18}
+hidden_neurons = "IO" # VAR: change to determine first hidden layer neurons
+hidden_neurons_2 = "IO2" # VAR: change to determine second hidden layer neurons
+hidden_neurons_3 = "O" # VAR: change to determine third hidden layer neurons (ignored if hidden_neurons_2 is None)
 
 # other hyperparameters
-lr = 0.001 # learning rate
-m = 0.2 # momentum constant
-r = 0.001 # regularization constant
+lr = 0.001 # VAR: learning rate
+m = 0.2 # VAR: momentum constant
+r = 0 # VAR: regularization constant
 
 # determine whether to use early stopping using validation set
-early_stopping = False
+early_stopping = False # VAR: determines whether early stopping is enabled
+restore_best = True # VAR: determines whether to restore best weights without early-stopping (early_stopping must be False)
 
-if early_stopping:
+if early_stopping or restore_best:
     data = np.loadtxt("dataset-train.csv", delimiter=";")
     val_data = np.loadtxt("dataset-test.csv", delimiter=";")
 
@@ -70,10 +74,16 @@ histories = []
 
 # train model using 5-fold CV
 for i, (train, test) in enumerate(five_fold.split(X)):
-    initializer = GlorotNormal()
+    initializer = GlorotNormal(seed=randint(0, 100000))
 
     model = Sequential()
     model.add(Dense(HL[hidden_neurons], activation="relu", input_dim=18, kernel_initializer=initializer, bias_initializer=initializer, kernel_regularizer=l2(r), bias_regularizer=l2(r)))
+
+    if hidden_neurons_2 is not None:
+        model.add(Dense(HL[hidden_neurons_2], activation="relu", kernel_initializer=initializer, bias_initializer=initializer, kernel_regularizer=l2(r), bias_regularizer=l2(r)))
+        if hidden_neurons_3 is not None:
+            model.add(Dense(HL[hidden_neurons_3], activation="relu", kernel_initializer=initializer, bias_initializer=initializer, kernel_regularizer=l2(r), bias_regularizer=l2(r)))
+
     model.add(Dense(5, activation="softmax", kernel_initializer=initializer, bias_initializer=initializer))
 
     keras.optimizers.SGD(learning_rate=lr, momentum=m)
@@ -81,10 +91,12 @@ for i, (train, test) in enumerate(five_fold.split(X)):
 
     if r:
         cb = [EarlyStopping(monitor="accuracy", min_delta=0.0001, patience=5, start_from_epoch=15, restore_best_weights=True)]
-    else:    
-        cb = [EarlyStopping(monitor="val_accuracy", min_delta=0.0001, patience=5, start_from_epoch=15, restore_best_weights=True)]
+    elif early_stopping:    
+        cb = [EarlyStopping(monitor="val_loss", min_delta=0.0001, patience=8, start_from_epoch=15, restore_best_weights=True)]
+    else:
+        cb = [EarlyStopping(monitor="val_loss", patience=1, start_from_epoch=90, restore_best_weights=True)]
 
-    histories.append(model.fit(X[train], to_categorical(Y[train]), validation_data=(valX, valY) if early_stopping else (), epochs=100, batch_size=100, callbacks=cb if early_stopping or r else []))
+    histories.append(model.fit(X[train], to_categorical(Y[train]), validation_data=(valX, valY) if early_stopping or restore_best else (), epochs=100, batch_size=100, callbacks=cb if early_stopping or r or restore_best else []))
 
     scores = model.evaluate(X[test], to_categorical(Y[test]), verbose=False)
     metrics.append(scores)
@@ -94,24 +106,24 @@ fig, ax = plt.subplots(3)
 
 ax[0].set_title("CE loss")
 ax[0].plot(get_avg_history(histories, "loss"), label="train")
-if early_stopping:
+if early_stopping or restore_best:
     ax[0].plot(get_avg_history(histories, "val_loss"), label="validation")
     ax[0].legend()
 
 ax[1].set_title("MSE")
 ax[1].plot(get_avg_history(histories, "mse"), label="train")
-if early_stopping:
+if early_stopping or restore_best:
     ax[1].plot(get_avg_history(histories, "val_mse"), label="validation")
     ax[1].legend()
 
 ax[2].set_title("Accuracy")
 ax[2].plot(get_avg_history(histories, "accuracy"), label="train")
-if early_stopping:
+if early_stopping or restore_best:
     ax[2].plot(get_avg_history(histories, "val_accuracy"), label="validation")
     ax[2].legend()
 
 fig.suptitle(f"{HL[hidden_neurons]} neurons in hidden layer - n: {lr}, m: {m}, r: {r}")
-plt.savefig(f"img/history-{HL[hidden_neurons]}{f'-lr_{lr}-m_{m}' if m else ''}{f'-r_{r}' if r else ''}{'-es' if early_stopping else ''}.png")
+plt.savefig(f"img/history-{HL[hidden_neurons]}{f'-{HL[hidden_neurons_2]}' if hidden_neurons_2 is not None else ''}{f'-{HL[hidden_neurons_3]}' if hidden_neurons_3 is not None else ''}{f'-lr_{lr}-m_{m}' if m else ''}{f'-r_{r}' if r else ''}{'-es' if early_stopping else ('-rb' if restore_best else '')}.png")
 
 # show results
 print(f"Total (using {HL[hidden_neurons]} neurons in hidden layer):")
