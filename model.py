@@ -4,7 +4,9 @@ from sklearn.model_selection import KFold
 import keras
 from keras.models import Sequential
 from keras.layers import Dense
+from keras.initializers import GlorotNormal
 from keras.callbacks import EarlyStopping
+from keras.regularizers import l1, l2
 from keras.utils import to_categorical
 from matplotlib import pyplot as plt
 
@@ -32,41 +34,35 @@ def get_avg_history(histories, metric):
 
     return avg_history
 
-class MinValAccuracyEarlyStopping(EarlyStopping):
-    def __init__(self, min_accuracy=None, **kwargs):
-        super().__init__(**kwargs)
-        self.min_accuracy = min_accuracy
-        self.allow_early_stopping = min_accuracy is None
-
-    def on_epoch_end(self, epoch, logs=None):
-        if self.min_accuracy is not None:
-            accuracy = logs.get("val_accuracy")
-            if accuracy is not None and accuracy >= self.min_accuracy:
-                self.allow_early_stopping = True
-
-            if not self.allow_early_stopping:
-                return
-
-        return super().on_epoch_end(epoch, logs)
-
-data = np.loadtxt("dataset-train.csv", delimiter=";")
-val_data = np.loadtxt("dataset-test.csv", delimiter=";")
-
-# input data is everything but class
-X = data[:, :-1]
-# output data is only class
-Y = data[:, -1]
-
-# same for validation data
-valX = val_data[:, :-1]
-valY = to_categorical(val_data[:, -1])
-
 # determine how many neurons to use in hidden layer
 HL = {"I": 5, "IO2": int((5 + 18) / 2), "IO": 5 + 18}
 hidden_neurons = "IO"
 
+# other hyperparameters
+lr = 0.001 # learning rate
+m = 0.2 # momentum constant
+r = 0.001 # regularization constant
+
 # determine whether to use early stopping using validation set
 early_stopping = False
+
+if early_stopping:
+    data = np.loadtxt("dataset-train.csv", delimiter=";")
+    val_data = np.loadtxt("dataset-test.csv", delimiter=";")
+
+    # input data is everything but class
+    X = data[:, :-1]
+    # output data is only class
+    Y = data[:, -1]
+
+    # same for validation data
+    valX = val_data[:, :-1]
+    valY = to_categorical(val_data[:, -1])
+else:
+    data = np.loadtxt("dataset-normalized.csv", delimiter=";")
+
+    X = data[:, :-1]
+    Y = data[:, -1]
 
 five_fold = KFold(n_splits=5, shuffle=True)
 metrics = []
@@ -74,19 +70,21 @@ histories = []
 
 # train model using 5-fold CV
 for i, (train, test) in enumerate(five_fold.split(X)):
+    initializer = GlorotNormal()
+
     model = Sequential()
-    model.add(Dense(HL[hidden_neurons], activation="relu", input_dim=18))
-    model.add(Dense(5, activation="softmax"))
+    model.add(Dense(HL[hidden_neurons], activation="relu", input_dim=18, kernel_initializer=initializer, bias_initializer=initializer, kernel_regularizer=l2(r), bias_regularizer=l2(r)))
+    model.add(Dense(5, activation="softmax", kernel_initializer=initializer, bias_initializer=initializer))
 
-    def rmse(y_true, y_pred):
-        return keras.backend.sqrt(keras.backend.mean(keras.backend.square(y_pred - y_true)))
-
-    keras.optimizers.SGD(learning_rate=0.001)
+    keras.optimizers.SGD(learning_rate=lr, momentum=m)
     model.compile(loss="categorical_crossentropy", optimizer="sgd", metrics=['mse', 'accuracy'])
 
-    cb = [MinValAccuracyEarlyStopping(min_accuracy=0.6, monitor="val_loss", min_delta=0.001, patience=4, restore_best_weights=True)]
+    if r:
+        cb = [EarlyStopping(monitor="accuracy", min_delta=0.0001, patience=5, start_from_epoch=15, restore_best_weights=True)]
+    else:    
+        cb = [EarlyStopping(monitor="val_accuracy", min_delta=0.0001, patience=5, start_from_epoch=15, restore_best_weights=True)]
 
-    histories.append(model.fit(X[train], to_categorical(Y[train]), validation_data=(valX, valY) if early_stopping else (), epochs=100, batch_size=100, callbacks=cb if early_stopping else []))
+    histories.append(model.fit(X[train], to_categorical(Y[train]), validation_data=(valX, valY) if early_stopping else (), epochs=100, batch_size=100, callbacks=cb if early_stopping or r else []))
 
     scores = model.evaluate(X[test], to_categorical(Y[test]), verbose=False)
     metrics.append(scores)
@@ -112,8 +110,8 @@ if early_stopping:
     ax[2].plot(get_avg_history(histories, "val_accuracy"), label="validation")
     ax[2].legend()
 
-fig.suptitle(f"{HL[hidden_neurons]} neurons in hidden layer")
-plt.savefig(f"img/history-{HL[hidden_neurons]}{'-es' if early_stopping else ''}.png")
+fig.suptitle(f"{HL[hidden_neurons]} neurons in hidden layer - n: {lr}, m: {m}, r: {r}")
+plt.savefig(f"img/history-{HL[hidden_neurons]}{f'-lr_{lr}-m_{m}' if m else ''}{f'-r_{r}' if r else ''}{'-es' if early_stopping else ''}.png")
 
 # show results
 print(f"Total (using {HL[hidden_neurons]} neurons in hidden layer):")

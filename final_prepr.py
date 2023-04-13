@@ -6,7 +6,9 @@ Does the following:
 Creates files dataset-train.csv and dataset-test.csv
 """
 import csv
-from random import shuffle
+from random import randint
+
+split_data = False
 
 data = []
 
@@ -43,33 +45,42 @@ for col in range(len(data[0]) - 1):
 for i, row in enumerate(data[1:]):
     normalized_data[i].append(row[-1])
 
-classes = {}
+if split_data:
+    classes = {}
 
-# split data by class
-for row in normalized_data:
-    if row[-1] not in classes:
-        classes[row[-1]] = []
+    # split data by class
+    for row in normalized_data:
+        if row[-1] not in classes:
+            classes[row[-1]] = []
 
-    classes[row[-1]].append(row)
+        classes[row[-1]].append(row)
 
-train_data = []
-test_data = []
+    train_data = []
+    test_data = []
 
-for class_ in classes:
-    train_points = int(0.7 * len(classes[class_]))
-    test_points = len(classes[class_]) - train_points
+    for class_ in classes:
+        train_points = int(0.7 * len(classes[class_]))
+        test_points = len(classes[class_]) - train_points
 
-    for i in range(train_points):
-        train_data.append(classes[class_][i])
+        # add data randomly to train and test datasets (by popping random indices)
 
-    for i in range(test_points):
-        test_data.append(classes[class_][train_points + i])
+        for i in range(train_points):
+            train_data.append(classes[class_].pop(randint(0, len(classes[class_])-1)))
 
-with open("dataset-train.csv", "w") as train_csvf, open("dataset-test.csv", "w") as test_csvf:
-    train_writer = csv.writer(train_csvf, delimiter=";")
-    for row in train_data:
-        train_writer.writerow(row)
+        for i in range(test_points):
+            test_data.append(classes[class_].pop(randint(0, len(classes[class_])-1)))
 
-    test_writer = csv.writer(test_csvf, delimiter=";")
-    for row in test_data:
-        test_writer.writerow(row)
+    with open("dataset-train.csv", "w") as train_csvf, open("dataset-test.csv", "w") as test_csvf:
+        train_writer = csv.writer(train_csvf, delimiter=";")
+        for row in train_data:
+            train_writer.writerow(row)
+
+        test_writer = csv.writer(test_csvf, delimiter=";")
+        for row in test_data:
+            test_writer.writerow(row)
+else:
+    with open("dataset-normalized.csv", "w") as csvf:
+        writer = csv.writer(csvf, delimiter=";")
+
+        for row in normalized_data:
+            writer.writerow(row)
